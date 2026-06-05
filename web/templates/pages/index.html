@@ -1,0 +1,22 @@
+{{template "base" .}}
+
+{{define "title"}}{{.Title}}{{end}}
+
+{{define "content"}}
+<section class="hero">
+    <h1>Welcome to {{.Title}}</h1>
+    <p>A Go single page application.</p>
+</section>
+
+<section class="content-section">
+    <div id="dynamic-content">
+        <button
+            class="btn btn-primary"
+            hx-get="/api/health"
+            hx-target="#dynamic-content"
+            hx-swap="innerHTML">
+            Check Health
+        </button>
+    </div>
+</section>
+{{end}}
