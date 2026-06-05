@@ -15,6 +15,7 @@ func (h *Handler) Routes() http.Handler {
 
 	// API
 	mux.HandleFunc("GET /api/health", h.handleHealth)
+	mux.HandleFunc("POST /api/connections", h.handleCreateConnection)
 
 	return h.middleware(mux)
 }

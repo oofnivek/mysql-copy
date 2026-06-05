@@ -15,6 +15,7 @@
         </div>
         <ul class="nav-links">
             <li><a href="/" hx-boost="true">Home</a></li>
+            <li><button class="nav-btn" onclick="openModal('modal-connection')">Create Connection</button></li>
         </ul>
     </nav>
 
@@ -25,6 +26,55 @@
     <footer class="footer">
         <p>&copy; 2026 mysql-copy</p>
     </footer>
+
+    <!-- Create Connection Modal -->
+    <div id="modal-connection" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-connection-title" hidden>
+        <div class="modal-backdrop" onclick="closeModal('modal-connection')"></div>
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h2 id="modal-connection-title">Create Connection</h2>
+                <button class="modal-close" onclick="closeModal('modal-connection')" aria-label="Close">&times;</button>
+            </div>
+            <form hx-post="/api/connections"
+                  hx-target="#connection-feedback"
+                  hx-swap="innerHTML"
+                  hx-on::after-request="onConnectionResponse(event)">
+                <div class="modal-body">
+                    <div id="connection-feedback"></div>
+                    <div class="form-group">
+                        <label for="conn-name">Connection Name</label>
+                        <input id="conn-name" name="name" type="text" class="form-control" placeholder="My Server" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="conn-host">Host</label>
+                            <input id="conn-host" name="host" type="text" class="form-control" placeholder="127.0.0.1" required>
+                        </div>
+                        <div class="form-group form-group--sm">
+                            <label for="conn-port">Port</label>
+                            <input id="conn-port" name="port" type="number" class="form-control" value="3306" min="1" max="65535" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="conn-user">Username</label>
+                        <input id="conn-user" name="username" type="text" class="form-control" placeholder="root" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="conn-pass">Password</label>
+                        <input id="conn-pass" name="password" type="password" class="form-control" placeholder="••••••••">
+                    </div>
+                    <div class="form-group">
+                        <label for="conn-db">Database <span class="label-hint">(optional)</span></label>
+                        <input id="conn-db" name="database" type="text" class="form-control" placeholder="my_database">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('modal-connection')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Connect</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script src="/static/js/app.js"></script>
 </body>
