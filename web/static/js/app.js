@@ -64,7 +64,12 @@ function checkCopyReady() {
 }
 
 document.addEventListener("change", checkCopyReady);
-document.addEventListener("htmx:afterSwap", checkCopyReady);
+document.addEventListener("htmx:afterSwap", (e) => {
+    checkCopyReady();
+    if (e.detail.target.id === "progress-log") {
+        e.detail.target.scrollTop = e.detail.target.scrollHeight;
+    }
+});
 
 // Exclude source connection from destination dropdown
 document.addEventListener("change", (e) => {
@@ -88,6 +93,21 @@ document.addEventListener("change", (e) => {
         destSelect.value = "";
         const wrap = document.getElementById("dest-db-wrap");
         if (wrap) wrap.innerHTML = "";
+    }
+});
+
+// Disable Start Copy while the copy is running, re-enable when done
+document.addEventListener("htmx:beforeRequest", (e) => {
+    if (e.detail.elt.id === "btn-start-copy") {
+        e.detail.elt.disabled = true;
+        e.detail.elt.textContent = "Copying…";
+    }
+});
+
+document.addEventListener("htmx:afterRequest", (e) => {
+    if (e.detail.elt.id === "btn-start-copy") {
+        e.detail.elt.textContent = "Start Copy";
+        checkCopyReady();
     }
 });
 

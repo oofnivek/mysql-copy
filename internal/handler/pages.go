@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -177,25 +178,76 @@ func (h *Handler) handleCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	srcConn := r.FormValue("source_conn")
+	srcConnName := r.FormValue("source_conn")
 	srcDB := r.FormValue("source_db")
 	srcTable := r.FormValue("source_table")
-	dstConn := r.FormValue("dest_conn")
+	dstConnName := r.FormValue("dest_conn")
 	dstDB := r.FormValue("dest_db")
 
-	if srcConn == "" || srcDB == "" || srcTable == "" || dstConn == "" || dstDB == "" {
+	if srcConnName == "" || srcDB == "" || srcTable == "" || dstConnName == "" || dstDB == "" {
 		h.respondAlert(w, http.StatusUnprocessableEntity, false, "All five fields are required.")
 		return
 	}
 
+	srcConn, err := h.connections.GetByName(srcConnName)
+	if err != nil {
+		h.respondAlert(w, http.StatusNotFound, false, "Source connection not found.")
+		return
+	}
+	dstConn, err := h.connections.GetByName(dstConnName)
+	if err != nil {
+		h.respondAlert(w, http.StatusNotFound, false, "Destination connection not found.")
+		return
+	}
+
 	h.logger.Info("copy requested",
-		"src_conn", srcConn, "src_db", srcDB, "src_table", srcTable,
-		"dst_conn", dstConn, "dst_db", dstDB,
+		"src_conn", srcConnName, "src_db", srcDB, "src_table", srcTable,
+		"dst_conn", dstConnName, "dst_db", dstDB,
 	)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<p class="log-line log-info">Starting copy: <strong>%s.%s.%s</strong> → <strong>%s.%s</strong></p>`,
-		srcConn, srcDB, srcTable, dstConn, dstDB)
+
+	var buf strings.Builder
+	logInfo := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-info">%s</p>`, msg) }
+	logOK := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-ok">%s</p>`, msg) }
+	logErr := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-error">%s</p>`, msg) }
+	flush := func() { fmt.Fprint(w, buf.String()) }
+
+	logInfo(fmt.Sprintf("Fetching DDL for <strong>%s.%s</strong>…", srcDB, srcTable))
+	ddl, err := getTableDDL(srcConn, srcDB, srcTable)
+	if err != nil {
+		logErr(fmt.Sprintf("Failed to get DDL: %s", err))
+		flush()
+		return
+	}
+	logOK("DDL fetched.")
+
+	logInfo(fmt.Sprintf("Dropping <strong>%s.%s</strong> if it exists…", dstDB, srcTable))
+	if err := dropTableIfExists(dstConn, dstDB, srcTable); err != nil {
+		logErr(fmt.Sprintf("Failed to drop table: %s", err))
+		flush()
+		return
+	}
+	logOK("Dropped (or did not exist).")
+
+	logInfo(fmt.Sprintf("Creating table <strong>%s.%s</strong>…", dstDB, srcTable))
+	if err := createTable(dstConn, dstDB, ddl); err != nil {
+		logErr(fmt.Sprintf("Failed to create table: %s", err))
+		flush()
+		return
+	}
+	logOK("Table created.")
+
+	logInfo("Copying rows…")
+	n, err := copyTableData(srcConn, srcDB, srcTable, dstConn, dstDB)
+	if err != nil {
+		logErr(fmt.Sprintf("Copy failed after %d rows: %s", n, err))
+		flush()
+		return
+	}
+	logOK(fmt.Sprintf("Done. Copied <strong>%d</strong> rows.", n))
+
+	flush()
 }
 
 func (h *Handler) respondAlert(w http.ResponseWriter, status int, ok bool, msg string) {
