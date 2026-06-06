@@ -1,0 +1,17 @@
+{{define "source-databases"}}
+<div class="form-group">
+    <label for="source-db">Database</label>
+    <select id="source-db" name="source_db" class="form-control"
+            hx-get="/api/source/tables"
+            hx-target="#source-table-wrap"
+            hx-swap="innerHTML"
+            hx-trigger="change"
+            hx-include="[name='source_conn']">
+        <option value="">-- select database --</option>
+        {{range .}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}
+    </select>
+</div>
+<div id="source-table-wrap"></div>
+{{end}}

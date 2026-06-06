@@ -3,20 +3,67 @@
 {{define "title"}}{{.Title}}{{end}}
 
 {{define "content"}}
-<section class="hero">
-    <h1>Welcome to {{.Title}}</h1>
-    <p>A Go single page application.</p>
-</section>
+<div class="layout">
 
-<section class="content-section">
-    <div id="dynamic-content">
-        <button
-            class="btn btn-primary"
-            hx-get="/api/health"
-            hx-target="#dynamic-content"
-            hx-swap="innerHTML">
-            Check Health
-        </button>
+    <div class="panel panel-source">
+        <div class="panel-header">Source</div>
+        <div class="panel-body">
+            <div class="form-group">
+                <label for="source-conn">Connection</label>
+                <select id="source-conn" name="source_conn" class="form-control"
+                        hx-get="/api/source/databases"
+                        hx-target="#source-db-wrap"
+                        hx-swap="innerHTML"
+                        hx-trigger="change"
+                        hx-include="this">
+                    <option value="">-- select connection --</option>
+                    {{range .Connections}}
+                    <option value="{{.Name}}">{{.Name}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div id="source-db-wrap"></div>
+        </div>
     </div>
-</section>
+
+    <div class="panel panel-dest">
+        <div class="panel-header">Destination</div>
+        <div class="panel-body">
+            <div class="form-group">
+                <label for="dest-conn">Connection</label>
+                <select id="dest-conn" name="dest_conn" class="form-control"
+                        hx-get="/api/dest/databases"
+                        hx-target="#dest-db-wrap"
+                        hx-swap="innerHTML"
+                        hx-trigger="change"
+                        hx-include="this">
+                    <option value="">-- select connection --</option>
+                    {{range .Connections}}
+                    <option value="{{.Name}}">{{.Name}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div id="dest-db-wrap"></div>
+        </div>
+    </div>
+
+    <div class="panel panel-progress">
+        <div class="panel-header panel-header--action">
+            <span>Progress</span>
+            <button id="btn-start-copy"
+                    class="btn btn-primary btn-sm"
+                    disabled
+                    hx-post="/api/copy"
+                    hx-target="#progress-log"
+                    hx-swap="innerHTML"
+                    hx-include="[name='source_conn'],[name='source_db'],[name='source_table'],[name='dest_conn'],[name='dest_db']">
+                Start Copy
+            </button>
+        </div>
+        <div class="panel-body" id="progress-log">
+            <p class="empty-state">Select source and destination to begin.</p>
+        </div>
+    </div>
+
+</div>
 {{end}}

@@ -1,0 +1,11 @@
+{{define "source-tables"}}
+<div class="form-group">
+    <label for="source-table">Table</label>
+    <select id="source-table" name="source_table" class="form-control">
+        <option value="">-- select table --</option>
+        {{range .}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}
+    </select>
+</div>
+{{end}}

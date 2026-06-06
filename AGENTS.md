@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-A Go single-page web application for copying MySQL databases. The backend is written in idiomatic Go using only the standard library (plus `godotenv`). The frontend uses HTMX for SPA-like interactions — no JavaScript build step, no frontend framework.
+A Go single-page web application for copying a MySQL table from one server to another. The destination table is dropped and recreated using the source DDL with `AUTO_INCREMENT` removed. The backend is idiomatic Go using only the standard library plus two small external packages. The frontend uses HTMX — no JavaScript build step, no frontend framework.
 
 ---
 
@@ -10,26 +10,34 @@ A Go single-page web application for copying MySQL databases. The backend is wri
 
 ```
 mysql-copy/
-├── cmd/server/main.go          # Binary entry point
+├── cmd/server/main.go              # Binary entry point
 ├── internal/
-│   ├── config/config.go        # Environment-based configuration
+│   ├── config/config.go            # Environment-based configuration
 │   ├── handler/
-│   │   ├── handler.go          # Handler type + template rendering
-│   │   ├── middleware.go       # Request logging middleware
-│   │   ├── pages.go            # HTTP handlers (pages + API)
-│   │   └── routes.go           # Route registration
-│   └── server/server.go        # http.Server construction
+│   │   ├── handler.go              # Handler type, template rendering, isHTMX helper
+│   │   ├── middleware.go           # Request logging middleware
+│   │   ├── mysql.go                # MySQL helpers: openDB, queryDatabases, queryTables
+│   │   ├── pages.go                # All HTTP handlers
+│   │   └── routes.go               # Route registration (single source of truth)
+│   ├── server/server.go            # http.Server construction with timeouts
+│   └── store/
+│       └── connections.go          # Connection struct + JSON file store
 ├── web/
-│   ├── embed.go                # Embeds templates/ and static/ into the binary
+│   ├── embed.go                    # //go:embed — bakes templates/ and static/ into binary
 │   ├── templates/
-│   │   ├── layout/base.html    # Shared HTML shell (nav, modal, footer)
-│   │   └── pages/index.html    # Home page — extends base
+│   │   ├── layout/base.html        # Shared HTML shell: nav, Connection dropdown, modals
+│   │   ├── pages/index.html        # Main page — 3-panel layout (source, dest, progress)
+│   │   └── partials/
+│   │       ├── connections.html        # Saved connections list fragment
+│   │       ├── source-databases.html   # Source database select (cascades to tables)
+│   │       ├── source-tables.html      # Source table select
+│   │       └── dest-databases.html     # Destination database select
 │   └── static/
-│       ├── css/app.css         # All styles (CSS variables, dark mode, modal, forms)
-│       └── js/app.js           # Modal open/close, HTMX event hooks
-├── .env.example                # Documented environment variables
-├── Makefile                    # run / build / test / tidy / lint / clean
-└── go.mod                      # Module: github.com/oofnivek/mysql-copy
+│       ├── css/app.css             # All styles: variables, dark mode, panels, modals, forms
+│       └── js/app.js               # Dropdown, modal, cascading-select, copy-ready logic
+├── .env.example                    # Documented environment variables
+├── Makefile                        # run / build / test / tidy / lint / clean
+└── go.mod                          # Module: github.com/oofnivek/mysql-copy
 ```
 
 ---
@@ -41,27 +49,32 @@ SIGINT/SIGTERM
       │
       ▼
 cmd/server/main.go
-  godotenv.Load()          ← reads .env if present
-  config.Load()            ← maps env vars to Config struct
-  slog setup               ← structured logger (text handler)
+  godotenv.Load()              ← reads .env if present
+  config.Load()                ← maps env vars to Config struct
+  slog setup                   ← structured text logger
   server.New(cfg, logger, web.FS)
       │
       ▼
 internal/server/server.go
-  handler.New(cfg, logger, webFS)
+  handler.New(cfg, logger, webFS)   ← parses templates, creates store
   http.Server{timeouts}
       │
       ▼
-internal/handler/routes.go  ← Go 1.22 method+path mux
-  GET  /static/*            → embedded static files
-  GET  /                    → handleIndex
-  GET  /api/health          → handleHealth
-  POST /api/connections     → handleCreateConnection
+internal/handler/routes.go    ← Go 1.22 method+path mux
+  GET  /static/*               → embedded static files
+  GET  /                       → handleIndex
+  GET  /api/health             → handleHealth
+  GET  /api/connections        → handleListConnections
+  POST /api/connections        → handleCreateConnection
+  GET  /api/source/databases   → handleSourceDatabases
+  GET  /api/source/tables      → handleSourceTables
+  GET  /api/dest/databases     → handleDestDatabases
+  POST /api/copy               → handleCopy
       │
       ▼
 internal/handler/middleware.go
-  responseWriter wrapper    ← captures status code
-  slog.Debug per request    ← method, path, status, duration
+  responseWriter wrapper       ← captures status code
+  slog.Debug per request       ← method, path, status, duration
 ```
 
 ---
@@ -70,36 +83,102 @@ internal/handler/middleware.go
 
 ### `internal/config`
 
-Reads `ADDR` (default `:8080`) and `ENV` (default `development`) from the environment. `ENV=production` raises the log level from Debug to Info. Loaded once at startup; passed through as a pointer.
+Reads env vars into a `Config` struct. Loaded once at startup; passed as a pointer everywhere.
+
+| Field             | Env var            | Default                          |
+|-------------------|--------------------|----------------------------------|
+| `Addr`            | `ADDR`             | `:8080`                          |
+| `Env`             | `ENV`              | `development`                    |
+| `LogLevel`        | (derived)          | Debug in dev, Info in production |
+| `ConnectionsFile` | `CONNECTIONS_FILE` | `~/.mysql-copy/connections.json` |
+
+### `internal/store`
+
+`Connection` struct and `Connections` file store. Persists to a JSON file protected by a `sync.Mutex`.
+
+**`Connection` struct JSON keys** — the file uses `"user"` (not `"username"`) to match the pre-existing connections file format. Do not change this tag without migrating the file.
+
+```
+id, name, host, port, user, password (omitempty), database (omitempty), created_at
+```
+
+**Public methods:**
+- `List() ([]Connection, error)` — read all connections
+- `GetByName(name string) (*Connection, error)` — look up by name; used by all MySQL query handlers
+- `Save(c Connection) error` — assign ID + timestamp, append, persist
+
+The file and its parent directory are created automatically on first save (`0700` dir, `0600` file).
 
 ### `internal/handler`
 
-All HTTP logic lives here. The `Handler` struct holds config, logger, parsed templates, and the static `fs.FS`. It is constructed once in `server.New`.
+All HTTP logic. The `Handler` struct holds config, logger, parsed templates, static `fs.FS`, and `*store.Connections`.
 
-- **`handler.go`** — constructor, `render` (executes a named template), `isHTMX` (checks `HX-Request` header).
-- **`routes.go`** — single source of truth for all routes. Add new routes here.
-- **`middleware.go`** — wraps the mux with request logging. Add new middleware here (auth, CORS, rate limiting).
-- **`pages.go`** — one function per page or API action. `respondAlert` is a shared helper that writes an HTMX-targeted HTML alert fragment.
+- **`handler.go`** — constructor; parses all template globs (`layout/*.html`, `pages/*.html`, `partials/*.html`); `render` executes a named template; `isHTMX` checks the `HX-Request` header.
+- **`routes.go`** — single source of truth for all routes. Add new routes here only.
+- **`middleware.go`** — request logging. Add auth, CORS, or rate-limiting here.
+- **`mysql.go`** — package-level MySQL helpers used by handlers:
+  - `openDB(conn)` — opens a `*sql.DB` without selecting a database; 1 max connection, 30s lifetime.
+  - `queryDatabases(conn)` — runs `SHOW DATABASES`, filters out `information_schema`, `performance_schema`, `mysql`, `sys`.
+  - `queryTables(conn, db)` — runs `SHOW TABLES FROM \`db\``.
+- **`pages.go`** — one function per route:
+  - `handleIndex` — loads saved connections, passes them to `index.html` for pre-populating dropdowns.
+  - `handleListConnections` — renders `connections-list` partial (used by Saved modal).
+  - `handleCreateConnection` — validates form, calls `pingMySQL`, saves on success.
+  - `handleSourceDatabases` — looks up `source_conn`, calls `queryDatabases`, renders `source-databases`.
+  - `handleSourceTables` — looks up `source_conn` + `source_db`, calls `queryTables`, renders `source-tables`.
+  - `handleDestDatabases` — looks up `dest_conn`, calls `queryDatabases`, renders `dest-databases`.
+  - `handleCopy` — validates all 5 fields, logs the job, writes first progress line to `#progress-log`.
+  - `respondAlert(w, status, ok, msg)` — shared helper; writes an `<div class="alert alert-*">` fragment.
 
 ### `internal/server`
 
-Thin constructor. Creates the `http.Server` with hardened timeouts: read 5s, write 10s, idle 120s.
+Thin constructor. `http.Server` timeouts: read 5s, write 10s, idle 120s.
 
 ### `web`
 
-All frontend assets. `embed.go` bakes `templates/` and `static/` into the binary at compile time via `//go:embed`. The resulting `embed.FS` is passed into the handler at startup — no files are read from disk at runtime.
+All frontend assets compiled into the binary via `//go:embed`. No files are read from disk at runtime.
 
-Template rendering uses Go's `html/template`. Layout templates are defined with `{{define "base"}}` and page templates extend them with `{{template "base" .}}` plus `{{define "content"}}`.
+Templates use Go's `html/template`. The `base` layout is defined with `{{define "base"}}`. Page templates extend it with `{{template "base" .}}` + `{{define "content"}}`. Partials are standalone `{{define "name"}}` blocks rendered directly by handlers via `h.render`.
 
 ---
 
-## Frontend conventions
+## UI layout
 
-- **HTMX** is loaded from CDN (`unpkg.com/htmx.org@2.0.3`). No npm, no bundler.
-- **SPA navigation** uses `hx-boost="true"` on anchor tags — full-page navigations become fetch requests, replacing only `<body>`.
-- **Partial responses** (modal form submission, dynamic content) target a specific DOM id via `hx-target` and swap the response HTML with `hx-swap`.
-- **Modals** are controlled by `openModal(id)` / `closeModal(id)` in `app.js`. They use the `hidden` attribute as the visibility toggle. ESC key closes any open modal.
-- **CSS variables** in `:root` drive all colours and spacing. Dark mode is handled automatically via `@media (prefers-color-scheme: dark)`.
+The main page has no footer. It is a full-viewport 3-panel CSS Grid:
+
+```
+┌─────────────────────────┬──────────────────────────┐
+│  SOURCE                 │  DESTINATION             │
+│  Connection ▾           │  Connection ▾            │
+│  Database   ▾           │  Database   ▾            │
+│  Table      ▾           │                          │
+├─────────────────────────┴──────────────────────────┤
+│  PROGRESS                          [Start Copy]    │
+│  (monospace log output)                            │
+└────────────────────────────────────────────────────┘
+```
+
+Grid definition: `grid-template-columns: 1fr 1fr`, `grid-template-rows: 1fr 220px`, named areas `source / dest / progress`. The `1px` gap between panels uses `background-color: var(--color-border)` on the grid container.
+
+**Cascading selects (HTMX):**
+1. Source Connection changes → `GET /api/source/databases?source_conn=NAME` → swaps `#source-db-wrap` with database select partial (which contains `#source-table-wrap`).
+2. Source Database changes → `GET /api/source/tables?source_conn=NAME&source_db=DB` → swaps `#source-table-wrap` with table select partial.
+3. Dest Connection changes → `GET /api/dest/databases?dest_conn=NAME` → swaps `#dest-db-wrap` with database select partial.
+
+**Start Copy button** — lives in the Progress panel header. Disabled by default. `checkCopyReady()` in `app.js` runs on every `change` event and every `htmx:afterSwap`; it queries all five selects by `name` attribute and enables the button only when all have a non-empty value.
+
+**Source → Destination exclusion** — when `source_conn` changes, the matching `<option>` in `dest_conn` is disabled. If dest already had the same value selected, it is reset to the placeholder and `#dest-db-wrap` is cleared.
+
+---
+
+## Nav and modals
+
+The nav has a **Connection ▾** dropdown with two items:
+
+- **Create** — opens `#modal-connection` (form: name, host, port, username, password, database). On submit, HTMX POSTs to `POST /api/connections`; the handler pings MySQL with a 5s timeout before saving. Success auto-closes the modal after 1.2s.
+- **Saved** — fires `GET /api/connections`, populates `#saved-connections-list`, then opens `#modal-saved`.
+
+Modals use the `hidden` attribute as the visibility toggle. `openModal` / `closeModal` are global JS functions. ESC closes any open modal. Clicking the backdrop also closes.
 
 ---
 
@@ -118,19 +197,24 @@ Copy `.env.example` to `.env` to override locally. `.env` is gitignored.
 ## Adding a new page
 
 1. Create `web/templates/pages/yourpage.html` — use `{{template "base" .}}` and `{{define "content"}}`.
-2. Add a handler function in `internal/handler/pages.go`.
+2. Add a handler in `internal/handler/pages.go`.
 3. Register the route in `internal/handler/routes.go`.
 4. Add a nav link in `web/templates/layout/base.html` if needed.
 
 ## Adding a new API endpoint
 
-1. Add a handler function in `internal/handler/pages.go` (or a new file in `internal/handler/`).
+1. Add a handler in `internal/handler/pages.go` (or a new file under `internal/handler/`).
 2. Register the route in `internal/handler/routes.go` with the method prefix (`POST /api/...`).
 3. Use `h.respondAlert` for HTMX fragment responses or `json.NewEncoder(w).Encode` for JSON.
 
+## Adding a new HTMX partial
+
+1. Create `web/templates/partials/yourpartial.html` with `{{define "yourpartial"}}`.
+2. Call `h.render(w, r, "yourpartial", data)` from the handler — no glob change needed, the constructor already parses `partials/*.html`.
+
 ## Adding middleware
 
-Wrap the existing chain in `internal/handler/middleware.go`. The current middleware signature is `func (h *Handler) middleware(next http.Handler) http.Handler`.
+Wrap the existing chain in `internal/handler/middleware.go`. Current signature: `func (h *Handler) middleware(next http.Handler) http.Handler`.
 
 ---
 
@@ -149,6 +233,11 @@ make run PORT=9090  # override port (must match ADDR in .env)
 
 ---
 
-## Dependency policy
+## Dependencies
 
-Keep external dependencies minimal. The only current dependency is `github.com/joho/godotenv` for `.env` loading. Before adding a new dependency, check whether the standard library already provides the capability.
+| Package                           | Purpose                              |
+|-----------------------------------|--------------------------------------|
+| `github.com/joho/godotenv`        | Load `.env` file at startup          |
+| `github.com/go-sql-driver/mysql`  | MySQL driver (blank-imported in `pages.go`) |
+
+Keep dependencies minimal. Check the standard library before adding anything new.

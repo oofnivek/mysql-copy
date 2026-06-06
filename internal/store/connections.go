@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -28,6 +29,22 @@ type Connections struct {
 
 func NewConnections(path string) *Connections {
 	return &Connections{path: path}
+}
+
+func (s *Connections) GetByName(name string) (*Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	list, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].Name == name {
+			return &list[i], nil
+		}
+	}
+	return nil, fmt.Errorf("connection %q not found", name)
 }
 
 func (s *Connections) List() ([]Connection, error) {

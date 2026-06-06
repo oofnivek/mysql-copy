@@ -1,0 +1,11 @@
+{{define "dest-databases"}}
+<div class="form-group">
+    <label for="dest-db">Database</label>
+    <select id="dest-db" name="dest_db" class="form-control">
+        <option value="">-- select database --</option>
+        {{range .}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}
+    </select>
+</div>
+{{end}}

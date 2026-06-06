@@ -18,9 +18,83 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	connections, err := h.connections.List()
+	if err != nil {
+		h.logger.Error("failed to load connections", "err", err)
+		connections = nil
+	}
+
 	h.render(w, r, "index.html", map[string]any{
-		"Title": "mysql-copy",
+		"Title":       "mysql-copy",
+		"Connections": connections,
 	})
+}
+
+func (h *Handler) handleSourceDatabases(w http.ResponseWriter, r *http.Request) {
+	connName := r.FormValue("source_conn")
+	if connName == "" {
+		return
+	}
+
+	conn, err := h.connections.GetByName(connName)
+	if err != nil {
+		h.respondAlert(w, http.StatusNotFound, false, "Connection not found.")
+		return
+	}
+
+	dbs, err := queryDatabases(conn)
+	if err != nil {
+		h.logger.Warn("SHOW DATABASES failed", "conn", connName, "err", err)
+		h.respondAlert(w, http.StatusBadGateway, false, fmt.Sprintf("Could not list databases: %s", err))
+		return
+	}
+
+	h.render(w, r, "source-databases", dbs)
+}
+
+func (h *Handler) handleSourceTables(w http.ResponseWriter, r *http.Request) {
+	connName := r.FormValue("source_conn")
+	database := r.FormValue("source_db")
+	if connName == "" || database == "" {
+		return
+	}
+
+	conn, err := h.connections.GetByName(connName)
+	if err != nil {
+		h.respondAlert(w, http.StatusNotFound, false, "Connection not found.")
+		return
+	}
+
+	tables, err := queryTables(conn, database)
+	if err != nil {
+		h.logger.Warn("SHOW TABLES failed", "conn", connName, "db", database, "err", err)
+		h.respondAlert(w, http.StatusBadGateway, false, fmt.Sprintf("Could not list tables: %s", err))
+		return
+	}
+
+	h.render(w, r, "source-tables", tables)
+}
+
+func (h *Handler) handleDestDatabases(w http.ResponseWriter, r *http.Request) {
+	connName := r.FormValue("dest_conn")
+	if connName == "" {
+		return
+	}
+
+	conn, err := h.connections.GetByName(connName)
+	if err != nil {
+		h.respondAlert(w, http.StatusNotFound, false, "Connection not found.")
+		return
+	}
+
+	dbs, err := queryDatabases(conn)
+	if err != nil {
+		h.logger.Warn("SHOW DATABASES failed", "conn", connName, "err", err)
+		h.respondAlert(w, http.StatusBadGateway, false, fmt.Sprintf("Could not list databases: %s", err))
+		return
+	}
+
+	h.render(w, r, "dest-databases", dbs)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +169,33 @@ func pingMySQL(host, port, username, password, database string) error {
 	defer cancel()
 
 	return db.PingContext(ctx)
+}
+
+func (h *Handler) handleCopy(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		h.respondAlert(w, http.StatusBadRequest, false, "Invalid request.")
+		return
+	}
+
+	srcConn := r.FormValue("source_conn")
+	srcDB := r.FormValue("source_db")
+	srcTable := r.FormValue("source_table")
+	dstConn := r.FormValue("dest_conn")
+	dstDB := r.FormValue("dest_db")
+
+	if srcConn == "" || srcDB == "" || srcTable == "" || dstConn == "" || dstDB == "" {
+		h.respondAlert(w, http.StatusUnprocessableEntity, false, "All five fields are required.")
+		return
+	}
+
+	h.logger.Info("copy requested",
+		"src_conn", srcConn, "src_db", srcDB, "src_table", srcTable,
+		"dst_conn", dstConn, "dst_db", dstDB,
+	)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<p class="log-line log-info">Starting copy: <strong>%s.%s.%s</strong> → <strong>%s.%s</strong></p>`,
+		srcConn, srcDB, srcTable, dstConn, dstDB)
 }
 
 func (h *Handler) respondAlert(w http.ResponseWriter, status int, ok bool, msg string) {
