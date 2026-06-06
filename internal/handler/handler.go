@@ -16,6 +16,7 @@ type Handler struct {
 	templates   *template.Template
 	staticFS    fs.FS
 	connections *store.Connections
+	presets     *store.Presets
 }
 
 func New(cfg *config.Config, logger *slog.Logger, webFS fs.FS) *Handler {
@@ -38,6 +39,7 @@ func New(cfg *config.Config, logger *slog.Logger, webFS fs.FS) *Handler {
 		templates:   tmpl,
 		staticFS:    staticFS,
 		connections: store.NewConnections(cfg.ConnectionsFile),
+		presets:     store.NewPresets(cfg.PresetsFile),
 	}
 }
 

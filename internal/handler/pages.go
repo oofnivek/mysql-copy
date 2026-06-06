@@ -25,9 +25,16 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		connections = nil
 	}
 
+	presets, err := h.presets.List()
+	if err != nil {
+		h.logger.Error("failed to load presets", "err", err)
+		presets = nil
+	}
+
 	h.render(w, r, "index.html", map[string]any{
 		"Title":       "mysql-copy",
 		"Connections": connections,
+		"Presets":     presets,
 	})
 }
 
@@ -172,38 +179,98 @@ func pingMySQL(host, port, username, password, database string) error {
 	return db.PingContext(ctx)
 }
 
+func (h *Handler) handleListPresets(w http.ResponseWriter, r *http.Request) {
+	list, err := h.presets.List()
+	if err != nil {
+		h.logger.Error("failed to list presets", "err", err)
+		http.Error(w, "could not load presets", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, r, "presets-list", list)
+}
+
+func (h *Handler) handleAddPreset(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		h.respondAlert(w, http.StatusBadRequest, false, "Invalid form data.")
+		return
+	}
+
+	srcConn := r.FormValue("source_conn")
+	srcDB := r.FormValue("source_db")
+	srcTable := r.FormValue("source_table")
+	dstConn := r.FormValue("dest_conn")
+	dstDB := r.FormValue("dest_db")
+
+	if srcConn == "" || srcDB == "" || srcTable == "" || dstConn == "" || dstDB == "" {
+		h.respondAlert(w, http.StatusUnprocessableEntity, false, "All five fields are required.")
+		return
+	}
+
+	if err := h.presets.Save(store.Preset{
+		SrcConn:  srcConn,
+		SrcDB:    srcDB,
+		SrcTable: srcTable,
+		DstConn:  dstConn,
+		DstDB:    dstDB,
+		DstTable: srcTable,
+	}); err != nil {
+		h.logger.Error("failed to save preset", "err", err)
+		h.respondAlert(w, http.StatusInternalServerError, false, "Could not save preset.")
+		return
+	}
+
+	list, err := h.presets.List()
+	if err != nil {
+		h.logger.Error("failed to list presets after save", "err", err)
+		http.Error(w, "could not load presets", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, r, "presets-list", list)
+}
+
+func (h *Handler) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.presets.Delete(id); err != nil {
+		h.logger.Error("failed to delete preset", "id", id, "err", err)
+		http.Error(w, "could not delete preset", http.StatusInternalServerError)
+		return
+	}
+
+	list, err := h.presets.List()
+	if err != nil {
+		h.logger.Error("failed to list presets after delete", "err", err)
+		http.Error(w, "could not load presets", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, r, "presets-list", list)
+}
+
 func (h *Handler) handleCopy(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.respondAlert(w, http.StatusBadRequest, false, "Invalid request.")
 		return
 	}
 
-	srcConnName := r.FormValue("source_conn")
-	srcDB := r.FormValue("source_db")
-	srcTable := r.FormValue("source_table")
-	dstConnName := r.FormValue("dest_conn")
-	dstDB := r.FormValue("dest_db")
-
-	if srcConnName == "" || srcDB == "" || srcTable == "" || dstConnName == "" || dstDB == "" {
-		h.respondAlert(w, http.StatusUnprocessableEntity, false, "All five fields are required.")
+	presetIDs := r.Form["preset_id"]
+	if len(presetIDs) == 0 {
+		h.respondAlert(w, http.StatusUnprocessableEntity, false, "No presets selected.")
 		return
 	}
 
-	srcConn, err := h.connections.GetByName(srcConnName)
+	allPresets, err := h.presets.List()
 	if err != nil {
-		h.respondAlert(w, http.StatusNotFound, false, "Source connection not found.")
+		h.respondAlert(w, http.StatusInternalServerError, false, "Could not load presets.")
 		return
 	}
-	dstConn, err := h.connections.GetByName(dstConnName)
-	if err != nil {
-		h.respondAlert(w, http.StatusNotFound, false, "Destination connection not found.")
-		return
+	presetMap := make(map[string]store.Preset, len(allPresets))
+	for _, p := range allPresets {
+		presetMap[p.ID] = p
 	}
-
-	h.logger.Info("copy requested",
-		"src_conn", srcConnName, "src_db", srcDB, "src_table", srcTable,
-		"dst_conn", dstConnName, "dst_db", dstDB,
-	)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
@@ -211,43 +278,66 @@ func (h *Handler) handleCopy(w http.ResponseWriter, r *http.Request) {
 	logInfo := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-info">%s</p>`, msg) }
 	logOK := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-ok">%s</p>`, msg) }
 	logErr := func(msg string) { fmt.Fprintf(&buf, `<p class="log-line log-error">%s</p>`, msg) }
-	flush := func() { fmt.Fprint(w, buf.String()) }
 
-	logInfo(fmt.Sprintf("Fetching DDL for <strong>%s.%s</strong>…", srcDB, srcTable))
-	ddl, err := getTableDDL(srcConn, srcDB, srcTable)
-	if err != nil {
-		logErr(fmt.Sprintf("Failed to get DDL: %s", err))
-		flush()
-		return
+	for i, id := range presetIDs {
+		p, ok := presetMap[id]
+		if !ok {
+			logErr(fmt.Sprintf("Preset not found: %s", id))
+			continue
+		}
+
+		if i > 0 {
+			buf.WriteString(`<p class="log-line log-info">&nbsp;</p>`)
+		}
+		logInfo(fmt.Sprintf("<strong>%s.%s.%s → %s.%s</strong>",
+			p.SrcConn, p.SrcDB, p.SrcTable, p.DstConn, p.DstDB))
+
+		srcConn, err := h.connections.GetByName(p.SrcConn)
+		if err != nil {
+			logErr(fmt.Sprintf("Source connection %q not found.", p.SrcConn))
+			continue
+		}
+		dstConn, err := h.connections.GetByName(p.DstConn)
+		if err != nil {
+			logErr(fmt.Sprintf("Destination connection %q not found.", p.DstConn))
+			continue
+		}
+
+		dstTable := p.DstTable
+		if dstTable == "" {
+			dstTable = p.SrcTable
+		}
+
+		h.logger.Info("copy requested",
+			"src_conn", p.SrcConn, "src_db", p.SrcDB, "src_table", p.SrcTable,
+			"dst_conn", p.DstConn, "dst_db", p.DstDB, "dst_table", dstTable,
+		)
+
+		ddl, err := getTableDDL(srcConn, p.SrcDB, p.SrcTable)
+		if err != nil {
+			logErr(fmt.Sprintf("Failed to get DDL: %s", err))
+			continue
+		}
+		logInfo(fmt.Sprintf("Dropping <strong>%s.%s</strong> if it exists…", p.DstDB, dstTable))
+		if err := dropTableIfExists(dstConn, p.DstDB, dstTable); err != nil {
+			logErr(fmt.Sprintf("Drop failed: %s", err))
+			continue
+		}
+		logInfo(fmt.Sprintf("Creating <strong>%s.%s</strong>…", p.DstDB, dstTable))
+		if err := createTable(dstConn, p.DstDB, ddl); err != nil {
+			logErr(fmt.Sprintf("Create failed: %s", err))
+			continue
+		}
+		logInfo("Copying rows…")
+		n, err := copyTableData(srcConn, p.SrcDB, p.SrcTable, dstConn, p.DstDB)
+		if err != nil {
+			logErr(fmt.Sprintf("Copy failed after %d rows: %s", n, err))
+			continue
+		}
+		logOK(fmt.Sprintf("Done — <strong>%d</strong> rows copied.", n))
 	}
-	logOK("DDL fetched.")
 
-	logInfo(fmt.Sprintf("Dropping <strong>%s.%s</strong> if it exists…", dstDB, srcTable))
-	if err := dropTableIfExists(dstConn, dstDB, srcTable); err != nil {
-		logErr(fmt.Sprintf("Failed to drop table: %s", err))
-		flush()
-		return
-	}
-	logOK("Dropped (or did not exist).")
-
-	logInfo(fmt.Sprintf("Creating table <strong>%s.%s</strong>…", dstDB, srcTable))
-	if err := createTable(dstConn, dstDB, ddl); err != nil {
-		logErr(fmt.Sprintf("Failed to create table: %s", err))
-		flush()
-		return
-	}
-	logOK("Table created.")
-
-	logInfo("Copying rows…")
-	n, err := copyTableData(srcConn, srcDB, srcTable, dstConn, dstDB)
-	if err != nil {
-		logErr(fmt.Sprintf("Copy failed after %d rows: %s", n, err))
-		flush()
-		return
-	}
-	logOK(fmt.Sprintf("Done. Copied <strong>%d</strong> rows.", n))
-
-	flush()
+	fmt.Fprint(w, buf.String())
 }
 
 func (h *Handler) respondAlert(w http.ResponseWriter, status int, ok bool, msg string) {

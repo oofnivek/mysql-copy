@@ -47,21 +47,39 @@
         </div>
     </div>
 
-    <div class="panel panel-progress">
+    <div class="panel panel-presets">
         <div class="panel-header panel-header--action">
-            <span>Progress</span>
-            <button id="btn-start-copy"
-                    class="btn btn-primary btn-sm"
-                    disabled
-                    hx-post="/api/copy"
-                    hx-target="#progress-log"
-                    hx-swap="innerHTML"
-                    hx-include="[name='source_conn'],[name='source_db'],[name='source_table'],[name='dest_conn'],[name='dest_db']">
-                Start Copy
-            </button>
+            <span>Presets</span>
+            <div class="btn-group">
+                <button id="btn-add-preset"
+                        class="btn btn-secondary btn-sm"
+                        disabled
+                        hx-post="/api/presets"
+                        hx-target="#presets-body"
+                        hx-swap="innerHTML"
+                        hx-include="[name='source_conn'],[name='source_db'],[name='source_table'],[name='dest_conn'],[name='dest_db']">
+                    Add Preset
+                </button>
+                <button id="btn-start-copy"
+                        class="btn btn-primary btn-sm"
+                        disabled
+                        hx-post="/api/copy"
+                        hx-target="#progress-log"
+                        hx-swap="innerHTML"
+                        hx-include=".preset-check">
+                    Start Copy
+                </button>
+            </div>
         </div>
+        <div class="panel-body" id="presets-body">
+            {{template "presets-list" .Presets}}
+        </div>
+    </div>
+
+    <div class="panel panel-progress">
+        <div class="panel-header">Progress</div>
         <div class="panel-body" id="progress-log">
-            <p class="empty-state">Select source and destination to begin.</p>
+            <p class="empty-state">Select presets and click Start Copy.</p>
         </div>
     </div>
 

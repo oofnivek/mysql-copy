@@ -1,0 +1,20 @@
+{{define "presets-list"}}
+{{if .}}
+<ul class="preset-list">
+    {{range .}}
+    <li class="preset-row">
+        <input type="checkbox" class="preset-check" name="preset_id" value="{{.ID}}" id="pc-{{.ID}}">
+        <label class="preset-label" for="pc-{{.ID}}">
+            <span class="preset-route">{{.SrcConn}}.{{.SrcDB}}.{{.SrcTable}} → {{.DstConn}}.{{.DstDB}}</span>
+        </label>
+        <button class="preset-delete"
+                hx-delete="/api/presets/{{.ID}}"
+                hx-target="#presets-body"
+                hx-swap="innerHTML">×</button>
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<p class="empty-state">No presets yet. Select source and destination, then click <strong>Add Preset</strong>.</p>
+{{end}}
+{{end}}

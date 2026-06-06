@@ -11,13 +11,15 @@ type Config struct {
 	Env             string
 	LogLevel        slog.Level
 	ConnectionsFile string
+	PresetsFile     string
 }
 
 func Load() *Config {
 	cfg := &Config{
 		Addr:            getEnv("ADDR", ":8080"),
 		Env:             getEnv("ENV", "development"),
-		ConnectionsFile: getEnv("CONNECTIONS_FILE", defaultConnectionsFile()),
+		ConnectionsFile: getEnv("CONNECTIONS_FILE", defaultDataFile("connections.json")),
+		PresetsFile:     getEnv("PRESETS_FILE", defaultDataFile("presets.json")),
 	}
 
 	if cfg.Env == "production" {
@@ -29,12 +31,12 @@ func Load() *Config {
 	return cfg
 }
 
-func defaultConnectionsFile() string {
+func defaultDataFile(name string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".mysql-copy/connections.json"
+		return filepath.Join(".mysql-copy", name)
 	}
-	return filepath.Join(home, ".mysql-copy", "connections.json")
+	return filepath.Join(home, ".mysql-copy", name)
 }
 
 func (c *Config) IsDev() bool {

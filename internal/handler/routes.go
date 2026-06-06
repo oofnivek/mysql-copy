@@ -23,6 +23,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/source/tables", h.handleSourceTables)
 	mux.HandleFunc("GET /api/dest/databases", h.handleDestDatabases)
 
+	// API — presets
+	mux.HandleFunc("GET /api/presets", h.handleListPresets)
+	mux.HandleFunc("POST /api/presets", h.handleAddPreset)
+	mux.HandleFunc("DELETE /api/presets/{id}", h.handleDeletePreset)
+
 	// API — copy
 	mux.HandleFunc("POST /api/copy", h.handleCopy)
 

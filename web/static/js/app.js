@@ -50,11 +50,11 @@ function onConnectionResponse(event) {
     }
 }
 
-// Enable Start Copy button when all 5 selects are filled
+// Enable Add Preset button when all 5 source/dest selects are filled
 const COPY_SELECTS = ["source_conn", "source_db", "source_table", "dest_conn", "dest_db"];
 
-function checkCopyReady() {
-    const btn = document.getElementById("btn-start-copy");
+function checkAddPresetReady() {
+    const btn = document.getElementById("btn-add-preset");
     if (!btn) return;
     const allFilled = COPY_SELECTS.every((name) => {
         const el = document.querySelector(`[name="${name}"]`);
@@ -63,11 +63,50 @@ function checkCopyReady() {
     btn.disabled = !allFilled;
 }
 
-document.addEventListener("change", checkCopyReady);
+// Enable Start Copy when at least one preset checkbox is checked
+function checkStartCopyReady() {
+    const btn = document.getElementById("btn-start-copy");
+    if (!btn) return;
+    btn.disabled = !document.querySelector(".preset-check:checked");
+}
+
+document.addEventListener("change", (e) => {
+    checkAddPresetReady();
+    if (e.target.classList.contains("preset-check")) {
+        checkStartCopyReady();
+    }
+});
+
 document.addEventListener("htmx:afterSwap", (e) => {
-    checkCopyReady();
+    checkAddPresetReady();
+    if (e.detail.target.id === "presets-body") {
+        checkStartCopyReady();
+    }
     if (e.detail.target.id === "progress-log") {
         e.detail.target.scrollTop = e.detail.target.scrollHeight;
+    }
+});
+
+// Button loading states
+document.addEventListener("htmx:beforeRequest", (e) => {
+    if (e.detail.elt.id === "btn-start-copy") {
+        e.detail.elt.disabled = true;
+        e.detail.elt.textContent = "Copying…";
+    }
+    if (e.detail.elt.id === "btn-add-preset") {
+        e.detail.elt.disabled = true;
+        e.detail.elt.textContent = "Adding…";
+    }
+});
+
+document.addEventListener("htmx:afterRequest", (e) => {
+    if (e.detail.elt.id === "btn-start-copy") {
+        e.detail.elt.textContent = "Start Copy";
+        checkStartCopyReady();
+    }
+    if (e.detail.elt.id === "btn-add-preset") {
+        e.detail.elt.textContent = "Add Preset";
+        checkAddPresetReady();
     }
 });
 
@@ -78,7 +117,6 @@ document.addEventListener("change", (e) => {
     const destSelect = document.querySelector("[name='dest_conn']");
     if (!destSelect) return;
 
-    // re-enable any previously excluded option
     destSelect.querySelectorAll("option[disabled]").forEach((o) => (o.disabled = false));
 
     const chosen = e.target.value;
@@ -93,21 +131,6 @@ document.addEventListener("change", (e) => {
         destSelect.value = "";
         const wrap = document.getElementById("dest-db-wrap");
         if (wrap) wrap.innerHTML = "";
-    }
-});
-
-// Disable Start Copy while the copy is running, re-enable when done
-document.addEventListener("htmx:beforeRequest", (e) => {
-    if (e.detail.elt.id === "btn-start-copy") {
-        e.detail.elt.disabled = true;
-        e.detail.elt.textContent = "Copying…";
-    }
-});
-
-document.addEventListener("htmx:afterRequest", (e) => {
-    if (e.detail.elt.id === "btn-start-copy") {
-        e.detail.elt.textContent = "Start Copy";
-        checkCopyReady();
     }
 });
 
