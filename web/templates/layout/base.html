@@ -15,7 +15,27 @@
         </div>
         <ul class="nav-links">
             <li><a href="/" hx-boost="true">Home</a></li>
-            <li><button class="nav-btn" onclick="openModal('modal-connection')">Create Connection</button></li>
+            <li class="nav-dropdown">
+                <button class="nav-btn nav-dropdown-toggle" onclick="toggleDropdown('dropdown-connection')">
+                    Connection <span class="dropdown-arrow">&#9662;</span>
+                </button>
+                <ul id="dropdown-connection" class="dropdown-menu" hidden>
+                    <li>
+                        <button class="dropdown-item" onclick="closeAllDropdowns(); openModal('modal-connection')">
+                            Create
+                        </button>
+                    </li>
+                    <li>
+                        <button class="dropdown-item"
+                                hx-get="/api/connections"
+                                hx-target="#saved-connections-list"
+                                hx-swap="innerHTML"
+                                hx-on::after-request="closeAllDropdowns(); openModal('modal-saved')">
+                            Saved
+                        </button>
+                    </li>
+                </ul>
+            </li>
         </ul>
     </nav>
 
@@ -26,6 +46,20 @@
     <footer class="footer">
         <p>&copy; 2026 mysql-copy</p>
     </footer>
+
+    <!-- Saved Connections Modal -->
+    <div id="modal-saved" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-saved-title" hidden>
+        <div class="modal-backdrop" onclick="closeModal('modal-saved')"></div>
+        <div class="modal-dialog modal-dialog--lg">
+            <div class="modal-header">
+                <h2 id="modal-saved-title">Saved Connections</h2>
+                <button class="modal-close" onclick="closeModal('modal-saved')" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="saved-connections-list"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- Create Connection Modal -->
     <div id="modal-connection" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-connection-title" hidden>

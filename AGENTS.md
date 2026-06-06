@@ -105,10 +105,11 @@ Template rendering uses Go's `html/template`. Layout templates are defined with 
 
 ## Environment variables
 
-| Variable | Default       | Description                        |
-|----------|---------------|------------------------------------|
-| `ADDR`   | `:8080`       | TCP address the server listens on  |
-| `ENV`    | `development` | `development` or `production`      |
+| Variable            | Default                            | Description                        |
+|---------------------|------------------------------------|------------------------------------|
+| `ADDR`              | `:8080`                            | TCP address the server listens on  |
+| `ENV`               | `development`                      | `development` or `production`      |
+| `CONNECTIONS_FILE`  | `~/.mysql-copy/connections.json`   | Path to the saved connections file |
 
 Copy `.env.example` to `.env` to override locally. `.env` is gitignored.
 

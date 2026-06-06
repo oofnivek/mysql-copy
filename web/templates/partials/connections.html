@@ -1,0 +1,19 @@
+{{define "connections-list"}}
+{{if .}}
+<ul class="connection-list">
+    {{range .}}
+    <li class="connection-card">
+        <div class="connection-card-name">{{.Name}}</div>
+        <div class="connection-card-details">
+            <span class="connection-card-tag">{{.Host}}:{{.Port}}</span>
+            <span class="connection-card-tag">{{.Username}}</span>
+            {{if .Database}}<span class="connection-card-tag">{{.Database}}</span>{{end}}
+        </div>
+        {{if not .CreatedAt.IsZero}}<div class="connection-card-meta">Saved {{.CreatedAt.Format "2 Jan 2006, 15:04"}}</div>{{end}}
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<p class="empty-state">No saved connections yet. Use <strong>Create Connection</strong> to add one.</p>
+{{end}}
+{{end}}

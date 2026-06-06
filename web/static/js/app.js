@@ -1,3 +1,27 @@
+// Dropdown
+function toggleDropdown(id) {
+    const menu = document.getElementById(id);
+    const isOpen = !menu.hidden;
+    closeAllDropdowns();
+    if (!isOpen) {
+        menu.removeAttribute("hidden");
+        menu.closest(".nav-dropdown").classList.add("open");
+    }
+}
+
+function closeAllDropdowns() {
+    document.querySelectorAll(".dropdown-menu").forEach((m) => {
+        m.setAttribute("hidden", "");
+        m.closest(".nav-dropdown")?.classList.remove("open");
+    });
+}
+
+document.addEventListener("click", (e) => {
+    if (!e.target.closest(".nav-dropdown")) {
+        closeAllDropdowns();
+    }
+});
+
 // Modal
 function openModal(id) {
     const modal = document.getElementById(id);

@@ -7,18 +7,24 @@ import (
 	"net/http"
 
 	"github.com/oofnivek/mysql-copy/internal/config"
+	"github.com/oofnivek/mysql-copy/internal/store"
 )
 
 type Handler struct {
-	cfg       *config.Config
-	logger    *slog.Logger
-	templates *template.Template
-	staticFS  fs.FS
+	cfg         *config.Config
+	logger      *slog.Logger
+	templates   *template.Template
+	staticFS    fs.FS
+	connections *store.Connections
 }
 
 func New(cfg *config.Config, logger *slog.Logger, webFS fs.FS) *Handler {
 	tmpl := template.Must(
-		template.New("").ParseFS(webFS, "templates/layout/*.html", "templates/pages/*.html"),
+		template.New("").ParseFS(webFS,
+			"templates/layout/*.html",
+			"templates/pages/*.html",
+			"templates/partials/*.html",
+		),
 	)
 
 	staticFS, err := fs.Sub(webFS, "static")
@@ -27,10 +33,11 @@ func New(cfg *config.Config, logger *slog.Logger, webFS fs.FS) *Handler {
 	}
 
 	return &Handler{
-		cfg:       cfg,
-		logger:    logger,
-		templates: tmpl,
-		staticFS:  staticFS,
+		cfg:         cfg,
+		logger:      logger,
+		templates:   tmpl,
+		staticFS:    staticFS,
+		connections: store.NewConnections(cfg.ConnectionsFile),
 	}
 }
 
